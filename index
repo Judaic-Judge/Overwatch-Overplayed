@@ -1,0 +1,339 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Overwatch Map Planner</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: sans-serif;
+      background: #111;
+      color: #eee;
+      overflow: hidden;
+    }
+
+    #toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      background: #222;
+      padding: 10px;
+      gap: 10px;
+      position: fixed;
+      top: 0;
+      width: 100%;
+      z-index: 100;
+    }
+
+    button, select {
+      padding: 5px 10px;
+      font-size: 16px;
+      background: #333;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+
+    button.active {
+      background: #555;
+      box-shadow: 0 0 5px #aaa;
+    }
+
+    #canvasContainer {
+      position: absolute;
+      top: 70px;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      overflow: auto;
+    }
+
+    canvas {
+      background: #000;
+      cursor: crosshair;
+      display: block;
+      transform-origin: top left;
+      transform: scale(1);
+    }
+  </style>
+</head>
+<body>
+  <div id="toolbar">
+    <select id="mapSelect"></select>
+    <select id="heroSelect"></select>
+    <select id="abilitySelect"></select>
+    <button onclick="setMode('hero')">Hero</button>
+    <button onclick="setMode('ability')">Ultimate</button>
+    <button onclick="setMode('health')">Health Pack</button>
+    <button onclick="setMode('erase')">Erase</button>
+    <button onclick="setMode('draw')">Draw</button>
+    <button onclick="setMode('circle')">Circle</button>
+    <button onclick="setMode('square')">Square</button>
+    <button onclick="setMode('delete')">Delete</button>
+    <button onclick="clearLines()">Clear Lines</button>
+    <button onclick="clearIcons()">Clear Icons</button>
+    <button onclick="zoomIn()">+</button>
+    <button onclick="zoomOut()">-</button>
+    <select id="lineStyle" onchange="updateLineStyle()">
+      <option value="solid">Solid</option>
+      <option value="dotted">Dotted</option>
+      <option value="arrow">Arrow</option>
+    </select>
+    <select id="lineColor" onchange="updateLineStyle()">
+      <option value="#00ff00">Green</option>
+      <option value="#ff0000">Red</option>
+      <option value="#ffff00">Yellow</option>
+      <option value="#00bfff">Blue</option>
+    </select>
+  </div>
+
+  <div id="canvasContainer">
+    <canvas id="mapCanvas"></canvas>
+  </div>
+
+  <script>
+    const canvas = document.getElementById("mapCanvas");
+    const ctx = canvas.getContext("2d");
+    const container = document.getElementById("canvasContainer");
+    let zoom = 1;
+
+    const mapDir = "maps/";
+    const iconDir = "textures/icons/";
+    const maps = ["watchpointgibraltar", "hanamura", "ilios", "kingsrow"];
+    const heroes = ["ana", "ashe", "baptiste", "bastion", "brig", "cassidy", "dva", "doomfist", "echo", "genji",
+      "hanzo", "junkrat", "lucio", "mei", "mercy", "moira", "orisa", "pharah", "reaper", "reinhardt",
+      "roadhog", "sigma", "soldier76", "sombra", "symmetra", "torbjorn", "tracer", "widowmaker",
+      "winston", "wreckingball", "zarya", "zenyatta"];
+
+    let currentMap = maps[0];
+    let mapImage = new Image();
+    let icons = [], lines = [], shapes = [];
+    let mode = 'hero';
+    let selectedHero = "zenyatta";
+    let selectedAbility = "zenyatta_ult";
+    let currentLineStyle = 'solid';
+    let currentLineColor = '#00ff00';
+    let currentPath = null;
+    let currentShape = null;
+
+    function updateLineStyle() {
+      currentLineStyle = document.getElementById("lineStyle").value;
+      currentLineColor = document.getElementById("lineColor").value;
+    }
+
+    function setMode(m) {
+      mode = m;
+      currentPath = null;
+      currentShape = null;
+      document.querySelectorAll("#toolbar button").forEach(btn => {
+        btn.classList.toggle("active", btn.textContent.toLowerCase() === m);
+      });
+    }
+
+    function clearIcons() { icons = []; redraw(); }
+    function clearLines() { lines = []; shapes = []; redraw(); }
+
+    function applyTransform() {
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+    }
+
+    function zoomAtPoint(delta, centerX, centerY) {
+      const newZoom = Math.max(0.3, Math.min(zoom + delta, 3));
+      const zoomFactor = newZoom / zoom;
+      zoom = newZoom;
+
+      canvas.style.transform = `scale(${zoom})`;
+      container.scrollLeft = centerX * zoomFactor - container.clientWidth / 2;
+      container.scrollTop = centerY * zoomFactor - container.clientHeight / 2;
+    }
+
+    function zoomIn() {
+      const centerX = container.scrollLeft + container.clientWidth / 2;
+      const centerY = container.scrollTop + container.clientHeight / 2;
+      zoomAtPoint(0.1, centerX, centerY);
+    }
+
+    function zoomOut() {
+      const centerX = container.scrollLeft + container.clientWidth / 2;
+      const centerY = container.scrollTop + container.clientHeight / 2;
+      zoomAtPoint(-0.1, centerX, centerY);
+    }
+
+    document.addEventListener("keydown", e => {
+      if (e.key === "+" || e.key === "=") zoomIn();
+      if (e.key === "-" || e.key === "_") zoomOut();
+      const panAmount = 20;
+      if (e.key === "ArrowUp") container.scrollTop -= panAmount;
+      if (e.key === "ArrowDown") container.scrollTop += panAmount;
+      if (e.key === "ArrowLeft") container.scrollLeft -= panAmount;
+      if (e.key === "ArrowRight") container.scrollLeft += panAmount;
+    });
+
+    canvas.addEventListener("click", e => {
+      if (mode === 'draw' || mode === 'circle' || mode === 'square') return;
+
+      const rect = canvas.getBoundingClientRect();
+      const x = (e.clientX - rect.left) / zoom;
+      const y = (e.clientY - rect.top) / zoom;
+
+      let iconSrc;
+      if (mode === 'hero') iconSrc = `${iconDir}${selectedHero}.png`;
+      if (mode === 'ability') iconSrc = `${iconDir}${selectedAbility}.png`;
+      if (mode === 'health') iconSrc = `${iconDir}health.png`;
+
+      if (iconSrc) {
+        icons.push({ src: iconSrc, x, y });
+        redraw();
+      }
+    });
+
+    canvas.addEventListener("mousedown", e => {
+      const rect = canvas.getBoundingClientRect();
+      const x = (e.clientX - rect.left) / zoom;
+      const y = (e.clientY - rect.top) / zoom;
+
+      if (mode === 'draw') {
+        currentPath = { x1: x, y1: y, x2: x, y2: y, color: currentLineColor, style: currentLineStyle };
+      }
+
+      if (mode === 'circle' || mode === 'square') {
+        currentShape = { type: mode, x1: x, y1: y, x2: x, y2: y, color: currentLineColor, style: currentLineStyle };
+      }
+    });
+
+    canvas.addEventListener("mousemove", e => {
+      const rect = canvas.getBoundingClientRect();
+      const x = (e.clientX - rect.left) / zoom;
+      const y = (e.clientY - rect.top) / zoom;
+
+      if (currentPath) {
+        currentPath.x2 = x;
+        currentPath.y2 = y;
+        redraw();
+      }
+
+      if (currentShape) {
+        currentShape.x2 = x;
+        currentShape.y2 = y;
+        redraw();
+      }
+    });
+
+    canvas.addEventListener("mouseup", e => {
+      if (currentPath) {
+        lines.push(currentPath);
+        currentPath = null;
+        redraw();
+      }
+
+      if (currentShape) {
+        shapes.push(currentShape);
+        currentShape = null;
+        redraw();
+      }
+    });
+
+    function drawStyledLine(line, preview = false) {
+      ctx.save();
+      ctx.strokeStyle = line.color;
+      ctx.lineWidth = 2;
+      ctx.setLineDash(line.style === 'dotted' ? [5, 5] : []);
+      ctx.beginPath();
+      ctx.moveTo(line.x1, line.y1);
+      ctx.lineTo(line.x2, line.y2);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    function drawShape(shape, preview = false) {
+      ctx.save();
+      ctx.strokeStyle = shape.color;
+      ctx.lineWidth = 2;
+      ctx.setLineDash(shape.style === 'dotted' ? [5, 5] : []);
+      ctx.beginPath();
+
+      if (shape.type === 'circle') {
+        const dx = shape.x2 - shape.x1;
+        const dy = shape.y2 - shape.y1;
+        const radius = Math.sqrt(dx * dx + dy * dy);
+        ctx.arc(shape.x1, shape.y1, radius, 0, Math.PI * 2);
+      } else if (shape.type === 'square') {
+        const x = Math.min(shape.x1, shape.x2);
+        const y = Math.min(shape.y1, shape.y2);
+        const w = Math.abs(shape.x2 - shape.x1);
+        const h = Math.abs(shape.y2 - shape.y1);
+        ctx.rect(x, y, w, h);
+      }
+
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    function redraw() {
+      applyTransform();
+      ctx.drawImage(mapImage, 0, 0);
+      for (let line of lines) drawStyledLine(line);
+      if (currentPath) drawStyledLine(currentPath, true);
+      for (let shape of shapes) drawShape(shape);
+      if (currentShape) drawShape(currentShape, true);
+      for (let icon of icons) {
+        const img = new Image();
+        img.onload = () => ctx.drawImage(img, icon.x, icon.y, 40, 40);
+        img.src = icon.src;
+      }
+    }
+
+    function centerMap() {
+      container.scrollLeft = (canvas.width * zoom - container.clientWidth) / 2;
+      container.scrollTop = (canvas.height * zoom - container.clientHeight) / 2;
+    }
+
+    function loadMap(name) {
+      mapImage.src = `${mapDir}${name}.png`;
+      mapImage.onload = () => {
+        canvas.width = mapImage.width;
+        canvas.height = mapImage.height;
+        canvas.style.transform = `scale(${zoom})`;
+        centerMap();
+        redraw();
+      };
+    }
+
+    function init() {
+      const mapSelect = document.getElementById("mapSelect");
+      maps.forEach(map => {
+        const opt = document.createElement("option");
+        opt.value = map;
+        opt.textContent = map;
+        mapSelect.appendChild(opt);
+      });
+      mapSelect.addEventListener("change", e => {
+        currentMap = e.target.value;
+        loadMap(currentMap);
+      });
+
+      const heroSelect = document.getElementById("heroSelect");
+      const abilitySelect = document.getElementById("abilitySelect");
+      heroes.forEach(hero => {
+        const h = document.createElement("option");
+        h.value = hero;
+        h.textContent = hero;
+        heroSelect.appendChild(h);
+        const a = document.createElement("option");
+        a.value = hero + "_ult";
+        a.textContent = hero + " ult";
+        abilitySelect.appendChild(a);
+      });
+      heroSelect.addEventListener("change", e => selectedHero = e.target.value);
+      abilitySelect.addEventListener("change", e => selectedAbility = e.target.value);
+
+      loadMap(currentMap);
+    }
+
+    init();
+  </script>
+</body>
+</html>
