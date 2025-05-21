@@ -13,7 +13,6 @@
       color: #eee;
       overflow: hidden;
     }
-
     #toolbar {
       display: flex;
       flex-wrap: wrap;
@@ -25,7 +24,6 @@
       width: 100%;
       z-index: 100;
     }
-
     button, select {
       padding: 5px 10px;
       font-size: 16px;
@@ -35,27 +33,47 @@
       border-radius: 4px;
       cursor: pointer;
     }
-
     button.active {
       background: #555;
       box-shadow: 0 0 5px #aaa;
     }
-
     #canvasContainer {
       position: absolute;
       top: 70px;
       bottom: 0;
       left: 0;
-      right: 0;
+      right: 200px;
       overflow: auto;
     }
-
     canvas {
       background: #000;
       cursor: crosshair;
       display: block;
       transform-origin: top left;
       transform: scale(1);
+    }
+    #pathPanel {
+      position: fixed;
+      top: 70px;
+      right: 0;
+      width: 200px;
+      background: #222;
+      padding: 10px;
+      color: white;
+      overflow-y: auto;
+      max-height: calc(100vh - 70px);
+      z-index: 100;
+      font-size: 14px;
+    }
+    #pathPanel select,
+    #pathPanel input[type=range] {
+      width: 100%;
+      margin-bottom: 10px;
+    }
+    #pathPanel .path-control {
+      border: 1px solid #555;
+      margin-bottom: 10px;
+      padding: 5px;
     }
   </style>
 </head>
@@ -67,15 +85,19 @@
     <button onclick="setMode('hero')">Hero</button>
     <button onclick="setMode('ability')">Ultimate</button>
     <button onclick="setMode('health')">Health Pack</button>
-    <button onclick="setMode('erase')">Erase</button>
     <button onclick="setMode('draw')">Draw</button>
     <button onclick="setMode('circle')">Circle</button>
     <button onclick="setMode('square')">Square</button>
+    <button onclick="setMode('move')">Move</button>
     <button onclick="setMode('delete')">Delete</button>
     <button onclick="clearLines()">Clear Lines</button>
     <button onclick="clearIcons()">Clear Icons</button>
+    <button onclick="clearPaths()">Clear Paths</button>
     <button onclick="zoomIn()">+</button>
     <button onclick="zoomOut()">-</button>
+    <button onclick="setMode('path')">Path</button>
+    <button onclick="togglePathVisibility()">Show/Hide Path</button>
+    <button onclick="animateAllPaths()">Animate All</button>
     <select id="lineStyle" onchange="updateLineStyle()">
       <option value="solid">Solid</option>
       <option value="dotted">Dotted</option>
@@ -88,252 +110,518 @@
       <option value="#00bfff">Blue</option>
     </select>
   </div>
-
   <div id="canvasContainer">
     <canvas id="mapCanvas"></canvas>
   </div>
+  <div id="pathPanel"></div>
 
   <script>
-    const canvas = document.getElementById("mapCanvas");
-    const ctx = canvas.getContext("2d");
-    const container = document.getElementById("canvasContainer");
-    let zoom = 1;
 
-    const mapDir = "maps/";
-    const iconDir = "textures/icons/";
-    const maps = ["watchpointgibraltar", "hanamura", "ilios", "kingsrow"];
-    const heroes = ["ana", "ashe", "baptiste", "bastion", "brig", "cassidy", "dva", "doomfist", "echo", "genji",
-      "hanzo", "junkrat", "lucio", "mei", "mercy", "moira", "orisa", "pharah", "reaper", "reinhardt",
-      "roadhog", "sigma", "soldier76", "sombra", "symmetra", "torbjorn", "tracer", "widowmaker",
-      "winston", "wreckingball", "zarya", "zenyatta"];
+  const canvas = document.getElementById("mapCanvas");
+  const ctx = canvas.getContext("2d");
+  const container = document.getElementById("canvasContainer");
+  const mapDir = "maps/";
+  const iconDir = "textures/icons/";
+  const maps = ["watchpointgibraltar", "hanamura", "ilios", "kingsrow"];
+  const heroes = [
+    "ana", "ashe", "baptiste", "bastion", "brig", "cassidy", "dva", "doomfist", "echo", "genji",
+    "hanzo", "junkrat", "lucio", "mei", "mercy", "moira", "orisa", "pharah", "reaper", "reinhardt",
+    "roadhog", "sigma", "soldier76", "sombra", "symmetra", "torbjorn", "tracer", "widowmaker",
+    "winston", "wreckingball", "zarya", "zenyatta"
+  ];
 
-    let currentMap = maps[0];
-    let mapImage = new Image();
-    let icons = [], lines = [], shapes = [];
-    let mode = 'hero';
-    let selectedHero = "zenyatta";
-    let selectedAbility = "zenyatta_ult";
-    let currentLineStyle = 'solid';
-    let currentLineColor = '#00ff00';
-    let currentPath = null;
-    let currentShape = null;
+  let currentMap = maps[0];
+  let mapImage = new Image();
+  let zoom = 1;
 
-    function updateLineStyle() {
-      currentLineStyle = document.getElementById("lineStyle").value;
-      currentLineColor = document.getElementById("lineColor").value;
-    }
+  let icons = [];        // hero/ability/health icons
+  let lines = [];        // drawn lines
+  let shapes = [];       // drawn shapes
+  let paths = [];        // animated paths
 
-    function setMode(m) {
-      mode = m;
-      currentPath = null;
-      currentShape = null;
-      document.querySelectorAll("#toolbar button").forEach(btn => {
-        btn.classList.toggle("active", btn.textContent.toLowerCase() === m);
-      });
-    }
+  let mode = 'hero';
+  let selectedHero = "zenyatta";
+  let selectedAbility = "zenyatta_ult";
 
-    function clearIcons() { icons = []; redraw(); }
-    function clearLines() { lines = []; shapes = []; redraw(); }
+  let currentLineStyle = 'solid';
+  let currentLineColor = '#00ff00';
 
-    function applyTransform() {
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-    }
+  let currentPath = null;        // current line being drawn
+  let currentShape = null;       // current shape being drawn
+  let currentPathPoints = [];    // points for a new path
 
-    function zoomAtPoint(delta, centerX, centerY) {
-      const newZoom = Math.max(0.3, Math.min(zoom + delta, 3));
-      const zoomFactor = newZoom / zoom;
-      zoom = newZoom;
+  let dragTarget = null;         // icon, shape, or line being dragged
+  let dragOffsetX = 0;
+  let dragOffsetY = 0;
 
+  let draggedPathPoint = null;   
+  let draggedPathIndex = -1;
+  let draggedPointIndex = -1;
+
+  let showPaths = true;
+</script>
+
+  function setMode(m) {
+    mode = m;
+    currentPath = null;
+    currentShape = null;
+    currentPathPoints = [];
+    dragTarget = null;
+    draggedPathPoint = null;
+    document.querySelectorAll("#toolbar button").forEach(btn => {
+      btn.classList.toggle("active", btn.textContent.toLowerCase() === m);
+    });
+  }
+
+  function updateLineStyle() {
+    currentLineStyle = document.getElementById("lineStyle").value;
+    currentLineColor = document.getElementById("lineColor").value;
+  }
+
+  function zoomAtPoint(delta, cx, cy) {
+    const newZoom = Math.max(0.3, Math.min(zoom + delta, 3));
+    const zf = newZoom / zoom;
+    zoom = newZoom;
+    canvas.style.transform = `scale(${zoom})`;
+    container.scrollLeft = cx * zf - container.clientWidth / 2;
+    container.scrollTop = cy * zf - container.clientHeight / 2;
+  }
+
+  function zoomIn() {
+    const cx = container.scrollLeft + container.clientWidth / 2;
+    const cy = container.scrollTop + container.clientHeight / 2;
+    zoomAtPoint(0.1, cx, cy);
+  }
+
+  function zoomOut() {
+    const cx = container.scrollLeft + container.clientWidth / 2;
+    const cy = container.scrollTop + container.clientHeight / 2;
+    zoomAtPoint(-0.1, cx, cy);
+  }
+
+  document.addEventListener("keydown", e => {
+    if (e.key === "+" || e.key === "=") zoomIn();
+    if (e.key === "-" || e.key === "_") zoomOut();
+    const pan = 20;
+    if (e.key === "ArrowUp") container.scrollTop -= pan;
+    if (e.key === "ArrowDown") container.scrollTop += pan;
+    if (e.key === "ArrowLeft") container.scrollLeft -= pan;
+    if (e.key === "ArrowRight") container.scrollLeft += pan;
+  });
+
+  function getCanvasCoords(e, rect) {
+    return {
+      x: (e.clientX - rect.left) / zoom,
+      y: (e.clientY - rect.top) / zoom
+    };
+  }
+
+  function loadMap(name) {
+    mapImage.src = `${mapDir}${name}.png`;
+    mapImage.onload = () => {
+      canvas.width = mapImage.width;
+      canvas.height = mapImage.height;
       canvas.style.transform = `scale(${zoom})`;
-      container.scrollLeft = centerX * zoomFactor - container.clientWidth / 2;
-      container.scrollTop = centerY * zoomFactor - container.clientHeight / 2;
-    }
+      redraw();
+    };
+  }
 
-    function zoomIn() {
-      const centerX = container.scrollLeft + container.clientWidth / 2;
-      const centerY = container.scrollTop + container.clientHeight / 2;
-      zoomAtPoint(0.1, centerX, centerY);
-    }
-
-    function zoomOut() {
-      const centerX = container.scrollLeft + container.clientWidth / 2;
-      const centerY = container.scrollTop + container.clientHeight / 2;
-      zoomAtPoint(-0.1, centerX, centerY);
-    }
-
-    document.addEventListener("keydown", e => {
-      if (e.key === "+" || e.key === "=") zoomIn();
-      if (e.key === "-" || e.key === "_") zoomOut();
-      const panAmount = 20;
-      if (e.key === "ArrowUp") container.scrollTop -= panAmount;
-      if (e.key === "ArrowDown") container.scrollTop += panAmount;
-      if (e.key === "ArrowLeft") container.scrollLeft -= panAmount;
-      if (e.key === "ArrowRight") container.scrollLeft += panAmount;
+  function redraw() {
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(mapImage, 0, 0);
+    if (currentPath) drawStyledLine(currentPath);
+    if (currentShape) drawShape(currentShape);
+    if (currentPathPoints.length > 1) drawPath({ points: currentPathPoints, visible: true });
+    lines.forEach(drawStyledLine);
+    shapes.forEach(drawShape);
+    paths.forEach(drawPath);
+    icons.forEach(icon => {
+      const img = new Image();
+      img.onload = () => ctx.drawImage(img, icon.x, icon.y, 40, 40);
+      img.src = icon.src;
     });
+  }
 
-    canvas.addEventListener("click", e => {
-      if (mode === 'draw' || mode === 'circle' || mode === 'square') return;
+  function drawStyledLine(line) {
+    ctx.save();
+    ctx.strokeStyle = line.color;
+    ctx.lineWidth = 2;
+    ctx.setLineDash(line.style === 'dotted' ? [5, 5] : []);
+    ctx.beginPath();
+    ctx.moveTo(line.x1, line.y1);
+    ctx.lineTo(line.x2, line.y2);
+    ctx.stroke();
 
-      const rect = canvas.getBoundingClientRect();
-      const x = (e.clientX - rect.left) / zoom;
-      const y = (e.clientY - rect.top) / zoom;
-
-      let iconSrc;
-      if (mode === 'hero') iconSrc = `${iconDir}${selectedHero}.png`;
-      if (mode === 'ability') iconSrc = `${iconDir}${selectedAbility}.png`;
-      if (mode === 'health') iconSrc = `${iconDir}health.png`;
-
-      if (iconSrc) {
-        icons.push({ src: iconSrc, x, y });
-        redraw();
-      }
-    });
-
-    canvas.addEventListener("mousedown", e => {
-      const rect = canvas.getBoundingClientRect();
-      const x = (e.clientX - rect.left) / zoom;
-      const y = (e.clientY - rect.top) / zoom;
-
-      if (mode === 'draw') {
-        currentPath = { x1: x, y1: y, x2: x, y2: y, color: currentLineColor, style: currentLineStyle };
-      }
-
-      if (mode === 'circle' || mode === 'square') {
-        currentShape = { type: mode, x1: x, y1: y, x2: x, y2: y, color: currentLineColor, style: currentLineStyle };
-      }
-    });
-
-    canvas.addEventListener("mousemove", e => {
-      const rect = canvas.getBoundingClientRect();
-      const x = (e.clientX - rect.left) / zoom;
-      const y = (e.clientY - rect.top) / zoom;
-
-      if (currentPath) {
-        currentPath.x2 = x;
-        currentPath.y2 = y;
-        redraw();
-      }
-
-      if (currentShape) {
-        currentShape.x2 = x;
-        currentShape.y2 = y;
-        redraw();
-      }
-    });
-
-    canvas.addEventListener("mouseup", e => {
-      if (currentPath) {
-        lines.push(currentPath);
-        currentPath = null;
-        redraw();
-      }
-
-      if (currentShape) {
-        shapes.push(currentShape);
-        currentShape = null;
-        redraw();
-      }
-    });
-
-    function drawStyledLine(line, preview = false) {
-      ctx.save();
-      ctx.strokeStyle = line.color;
-      ctx.lineWidth = 2;
-      ctx.setLineDash(line.style === 'dotted' ? [5, 5] : []);
+    if (line.style === 'arrow') {
+      const angle = Math.atan2(line.y2 - line.y1, line.x2 - line.x1);
+      const len = 10;
       ctx.beginPath();
-      ctx.moveTo(line.x1, line.y1);
-      ctx.lineTo(line.x2, line.y2);
+      ctx.moveTo(line.x2, line.y2);
+      ctx.lineTo(line.x2 - len * Math.cos(angle - Math.PI / 6), line.y2 - len * Math.sin(angle - Math.PI / 6));
+      ctx.moveTo(line.x2, line.y2);
+      ctx.lineTo(line.x2 - len * Math.cos(angle + Math.PI / 6), line.y2 - len * Math.sin(angle + Math.PI / 6));
       ctx.stroke();
-      ctx.restore();
     }
 
-    function drawShape(shape, preview = false) {
-      ctx.save();
-      ctx.strokeStyle = shape.color;
-      ctx.lineWidth = 2;
-      ctx.setLineDash(shape.style === 'dotted' ? [5, 5] : []);
-      ctx.beginPath();
+    ctx.restore();
+  }
 
-      if (shape.type === 'circle') {
-        const dx = shape.x2 - shape.x1;
-        const dy = shape.y2 - shape.y1;
-        const radius = Math.sqrt(dx * dx + dy * dy);
-        ctx.arc(shape.x1, shape.y1, radius, 0, Math.PI * 2);
-      } else if (shape.type === 'square') {
-        const x = Math.min(shape.x1, shape.x2);
-        const y = Math.min(shape.y1, shape.y2);
-        const w = Math.abs(shape.x2 - shape.x1);
-        const h = Math.abs(shape.y2 - shape.y1);
-        ctx.rect(x, y, w, h);
+  function drawShape(s) {
+    ctx.save();
+    ctx.strokeStyle = s.color;
+    ctx.lineWidth = 2;
+    ctx.setLineDash(s.style === 'dotted' ? [5, 5] : []);
+    ctx.beginPath();
+    if (s.type === 'circle') {
+      const r = Math.hypot(s.x2 - s.x1, s.y2 - s.y1);
+      ctx.arc(s.x1, s.y1, r, 0, Math.PI * 2);
+    } else {
+      const x = Math.min(s.x1, s.x2);
+      const y = Math.min(s.y1, s.y2);
+      const w = Math.abs(s.x2 - s.x1);
+      const h = Math.abs(s.y2 - s.y1);
+      ctx.rect(x, y, w, h);
+    }
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawPath(p) {
+    if (!showPaths || !p.visible || p.points.length < 2) return;
+    ctx.save();
+    ctx.strokeStyle = "#0ff";
+    ctx.lineWidth = 2;
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    ctx.moveTo(p.points[0].x, p.points[0].y);
+    for (let i = 1; i < p.points.length; i++) {
+      ctx.lineTo(p.points[i].x, p.points[i].y);
+    }
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function animateAllPaths() {
+    paths.forEach(p => {
+      if (p.icon) p.icon.progress = 0;
+    });
+    requestAnimationFrame(stepAnimation);
+  }
+
+  function animateSinglePath(path) {
+    function step() {
+      if (!path.icon || path.points.length < 2) return;
+      path.icon.progress += path.speed;
+      if (path.icon.progress > 1) path.icon.progress = 1;
+      const { x, y } = interpolatePath(path.points, path.icon.progress);
+      path.icon.x = x - 20;
+      path.icon.y = y - 20;
+      redraw();
+      if (path.icon.progress < 1) requestAnimationFrame(step);
+    }
+    requestAnimationFrame(step);
+  }
+
+  function stepAnimation() {
+    let running = false;
+    for (const p of paths) {
+      if (!p.icon || p.points.length < 2) continue;
+      const icon = p.icon;
+      icon.progress += p.speed;
+      if (icon.progress > 1) icon.progress = 1;
+      const { x, y } = interpolatePath(p.points, icon.progress);
+      icon.x = x - 20;
+      icon.y = y - 20;
+      if (icon.progress < 1) running = true;
+    }
+    redraw();
+    if (running) requestAnimationFrame(stepAnimation);
+  }
+
+  function interpolatePath(points, t) {
+    const i = Math.floor(t * (points.length - 1));
+    const frac = t * (points.length - 1) - i;
+    const p1 = points[i];
+    const p2 = points[Math.min(i + 1, points.length - 1)];
+    return {
+      x: p1.x + (p2.x - p1.x) * frac,
+      y: p1.y + (p2.y - p1.y) * frac
+    };
+  }
+
+  function addPathControl(i) {
+    const panel = document.getElementById("pathPanel");
+    const div = document.createElement("div");
+    div.className = "path-control";
+    div.innerHTML = `
+      <label>Path ${i + 1}</label>
+      <select></select>
+      <input type='range' min='0.001' max='0.02' step='0.001' value='0.005'/>
+      <button class='animate-btn'>Animate</button>
+      <button class='delete-btn'>Delete</button>
+    `;
+    panel.appendChild(div);
+
+    const select = div.querySelector("select");
+    heroes.forEach(hero => {
+      const opt = document.createElement("option");
+      opt.value = hero;
+      opt.textContent = hero;
+      select.appendChild(opt);
+    });
+
+    select.addEventListener("change", e => {
+      const heroName = e.target.value;
+      const icon = icons.find(i => i.id === heroName);
+      if (icon) {
+        paths[i].icon = icon;
+        icon.progress = 0;
       }
+    });
 
-      ctx.stroke();
-      ctx.restore();
-    }
+    const range = div.querySelector("input[type='range']");
+    range.addEventListener("input", e => {
+      paths[i].speed = parseFloat(e.target.value);
+    });
 
-    function redraw() {
-      applyTransform();
-      ctx.drawImage(mapImage, 0, 0);
-      for (let line of lines) drawStyledLine(line);
-      if (currentPath) drawStyledLine(currentPath, true);
-      for (let shape of shapes) drawShape(shape);
-      if (currentShape) drawShape(currentShape, true);
-      for (let icon of icons) {
-        const img = new Image();
-        img.onload = () => ctx.drawImage(img, icon.x, icon.y, 40, 40);
-        img.src = icon.src;
+    div.querySelector(".animate-btn").addEventListener("click", () => {
+      const path = paths[i];
+      if (path.icon) {
+        path.icon.progress = 0;
+        animateSinglePath(path);
       }
-    }
+    });
 
-    function centerMap() {
-      container.scrollLeft = (canvas.width * zoom - container.clientWidth) / 2;
-      container.scrollTop = (canvas.height * zoom - container.clientHeight) / 2;
-    }
+    div.querySelector(".delete-btn").addEventListener("click", () => {
+      paths.splice(i, 1);
+      panel.removeChild(div);
+      redraw();
+    });
+  }
 
-    function loadMap(name) {
-      mapImage.src = `${mapDir}${name}.png`;
-      mapImage.onload = () => {
-        canvas.width = mapImage.width;
-        canvas.height = mapImage.height;
-        canvas.style.transform = `scale(${zoom})`;
-        centerMap();
-        redraw();
-      };
-    }
+  function clearIcons() { icons = []; redraw(); }
+  function clearLines() { lines = []; shapes = []; redraw(); }
+  function clearPaths() {
+    paths = [];
+    document.getElementById("pathPanel").innerHTML = "";
+    redraw();
+  }
 
-    function init() {
-      const mapSelect = document.getElementById("mapSelect");
-      maps.forEach(map => {
-        const opt = document.createElement("option");
-        opt.value = map;
-        opt.textContent = map;
-        mapSelect.appendChild(opt);
-      });
-      mapSelect.addEventListener("change", e => {
-        currentMap = e.target.value;
-        loadMap(currentMap);
-      });
+  function togglePathVisibility() {
+    showPaths = !showPaths;
+    redraw();
+  }
 
-      const heroSelect = document.getElementById("heroSelect");
-      const abilitySelect = document.getElementById("abilitySelect");
-      heroes.forEach(hero => {
-        const h = document.createElement("option");
-        h.value = hero;
-        h.textContent = hero;
-        heroSelect.appendChild(h);
-        const a = document.createElement("option");
-        a.value = hero + "_ult";
-        a.textContent = hero + " ult";
-        abilitySelect.appendChild(a);
-      });
-      heroSelect.addEventListener("change", e => selectedHero = e.target.value);
-      abilitySelect.addEventListener("change", e => selectedAbility = e.target.value);
-
+  function init() {
+    const mapSelect = document.getElementById("mapSelect");
+    maps.forEach(map => {
+      const opt = document.createElement("option");
+      opt.value = map;
+      opt.textContent = map;
+      mapSelect.appendChild(opt);
+    });
+    mapSelect.addEventListener("change", e => {
+      currentMap = e.target.value;
       loadMap(currentMap);
+    });
+
+    const heroSelect = document.getElementById("heroSelect");
+    const abilitySelect = document.getElementById("abilitySelect");
+    heroes.forEach(hero => {
+      const h = document.createElement("option");
+      h.value = hero;
+      h.textContent = hero;
+      heroSelect.appendChild(h);
+      const a = document.createElement("option");
+      a.value = hero + "_ult";
+      a.textContent = hero + " ult";
+      abilitySelect.appendChild(a);
+    });
+
+    heroSelect.addEventListener("change", e => selectedHero = e.target.value);
+    abilitySelect.addEventListener("change", e => selectedAbility = e.target.value);
+    loadMap(currentMap);
+  }
+  init();
+
+  canvas.addEventListener("click", e => {
+    const rect = canvas.getBoundingClientRect();
+    const x = (e.clientX - rect.left) / zoom;
+    const y = (e.clientY - rect.top) / zoom;
+
+    if (mode === 'hero' || mode === 'ability' || mode === 'health') {
+      let src = "";
+      if (mode === 'hero') src = iconDir + selectedHero + ".png";
+      if (mode === 'ability') src = iconDir + selectedAbility + ".png";
+      if (mode === 'health') src = iconDir + "health.png";
+      icons.push({ src, x, y, id: mode === 'hero' ? selectedHero : selectedAbility });
+      redraw();
+    }
+  });
+
+  canvas.addEventListener("mousedown", e => {
+    const rect = canvas.getBoundingClientRect();
+    const x = (e.clientX - rect.left) / zoom;
+    const y = (e.clientY - rect.top) / zoom;
+
+    if (mode === 'draw') {
+      currentPath = { x1: x, y1: y, x2: x, y2: y, color: currentLineColor, style: currentLineStyle };
+    } else if (mode === 'circle' || mode === 'square') {
+      currentShape = { type: mode, x1: x, y1: y, x2: x, y2: y, color: currentLineColor, style: currentLineStyle };
+    } else if (mode === 'path') {
+      if (paths.length >= 10) {
+        alert("Maximum of 10 paths allowed.");
+        return;
+      }
+      currentPathPoints = [getCanvasCoords(e, rect)];
+    } else if (mode === 'move') {
+      for (let i = icons.length - 1; i >= 0; i--) {
+        const icon = icons[i];
+        if (x >= icon.x && x <= icon.x + 40 && y >= icon.y && y <= icon.y + 40) {
+          dragTarget = icon;
+          dragOffsetX = x - icon.x;
+          dragOffsetY = y - icon.y;
+          return;
+        }
+      }
+      for (let i = shapes.length - 1; i >= 0; i--) {
+        const s = shapes[i];
+        if (x >= Math.min(s.x1, s.x2) && x <= Math.max(s.x1, s.x2) &&
+            y >= Math.min(s.y1, s.y2) && y <= Math.max(s.y1, s.y2)) {
+          dragTarget = s;
+          dragOffsetX = x - s.x1;
+          dragOffsetY = y - s.y1;
+          return;
+        }
+      }
+      for (let i = lines.length - 1; i >= 0; i--) {
+        const l = lines[i];
+        const d = pointToSegmentDistance(x, y, l.x1, l.y1, l.x2, l.y2);
+        if (d < 10) {
+          dragTarget = l;
+          dragOffsetX = x;
+          dragOffsetY = y;
+          return;
+        }
+      }
+      for (let i = paths.length - 1; i >= 0; i--) {
+        const path = paths[i];
+        for (let j = 0; j < path.points.length; j++) {
+          const pt = path.points[j];
+          if (Math.hypot(pt.x - x, pt.y - y) < 10) {
+            draggedPathPoint = pt;
+            draggedPathIndex = i;
+            draggedPointIndex = j;
+            return;
+          }
+        }
+      }
+    }
+  });
+
+  canvas.addEventListener("mousemove", e => {
+    const rect = canvas.getBoundingClientRect();
+    const x = (e.clientX - rect.left) / zoom;
+    const y = (e.clientY - rect.top) / zoom;
+
+    if (currentPath) {
+      currentPath.x2 = x;
+      currentPath.y2 = y;
+      redraw();
+    } else if (currentShape) {
+      currentShape.x2 = x;
+      currentShape.y2 = y;
+      redraw();
+    } else if (mode === 'path' && currentPathPoints.length > 0) {
+      currentPathPoints.push(getCanvasCoords(e, rect));
+      redraw();
+    } else if (mode === 'move' && dragTarget) {
+      if ('src' in dragTarget) {
+        dragTarget.x = x - dragOffsetX;
+        dragTarget.y = y - dragOffsetY;
+      } else if ('x1' in dragTarget && 'x2' in dragTarget) {
+        const dx = x - dragOffsetX;
+        const dy = y - dragOffsetY;
+        dragTarget.x1 += dx;
+        dragTarget.y1 += dy;
+        dragTarget.x2 += dx;
+        dragTarget.y2 += dy;
+        dragOffsetX = x;
+        dragOffsetY = y;
+      } else {
+        const dx = x - dragOffsetX;
+        const dy = y - dragOffsetY;
+        const w = dragTarget.x2 - dragTarget.x1;
+        const h = dragTarget.y2 - dragTarget.y1;
+        dragTarget.x1 = dx;
+        dragTarget.y1 = dy;
+        dragTarget.x2 = dx + w;
+        dragTarget.y2 = dy + h;
+      }
+      redraw();
+    } else if (draggedPathPoint) {
+      draggedPathPoint.x = x;
+      draggedPathPoint.y = y;
+      redraw();
+    }
+  });
+
+  canvas.addEventListener("mouseup", () => {
+    if (mode === 'draw' && currentPath) {
+      lines.push(currentPath);
+      currentPath = null;
+      redraw();
+    } else if ((mode === 'circle' || mode === 'square') && currentShape) {
+      shapes.push(currentShape);
+      currentShape = null;
+      redraw();
+    } else if (mode === 'path' && currentPathPoints.length >= 2) {
+      const path = {
+        points: currentPathPoints,
+        icon: null,
+        speed: 0.005,
+        visible: true
+      };
+      paths.push(path);
+      addPathControl(paths.length - 1);
+      currentPathPoints = [];
+      redraw();
     }
 
-    init();
+    dragTarget = null;
+    draggedPathPoint = null;
+    draggedPathIndex = -1;
+    draggedPointIndex = -1;
+  });
+
+  function pointToSegmentDistance(px, py, x1, y1, x2, y2) {
+    const A = px - x1;
+    const B = py - y1;
+    const C = x2 - x1;
+    const D = y2 - y1;
+    const dot = A * C + B * D;
+    const len_sq = C * C + D * D;
+    let param = -1;
+    if (len_sq !== 0) param = dot / len_sq;
+
+    let xx, yy;
+    if (param < 0) {
+      xx = x1;
+      yy = y1;
+    } else if (param > 1) {
+      xx = x2;
+      yy = y2;
+    } else {
+      xx = x1 + param * C;
+      yy = y1 + param * D;
+    }
+
+    const dx = px - xx;
+    const dy = py - yy;
+    return Math.sqrt(dx * dx + dy * dy);
+  }
+
   </script>
 </body>
 </html>
