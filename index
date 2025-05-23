@@ -6,6 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Overwatch Map Planner</title>
   <style>
+/* General page styling */
     body {
       margin: 0;
       font-family: sans-serif;
@@ -13,6 +14,7 @@
       color: #eee;
       overflow: hidden;
     }
+/* Toolbar at top of the screen */
     #toolbar {
       display: flex;
       flex-wrap: wrap;
@@ -22,36 +24,41 @@
       position: fixed;
       top: 0;
       width: 100%;
-      z-index: 100;
+      z-index: 100; /* Ensures toolbar stays on top */
     }
-    button, select {
+/* Buttons and dropdowns */    
+      button, select {
       padding: 5px 10px;
       font-size: 16px;
       background: #333;
       color: white;
       border: none;
       border-radius: 4px;
-      cursor: pointer;
+      cursor: pointer; /* Pointer cursor for interactive elements */
     }
-    button.active {
+  /* Highlight active buttons */ 
+  button.active {
       background: #555;
-      box-shadow: 0 0 5px #aaa;
+      box-shadow: 0 0 5px #aaa; /* Subtle glow effect for active buttons */
     }
-    #canvasContainer {
+     /* Container holding the canvas */ 
+   #canvasContainer {
       position: absolute;
       top: 70px;
       bottom: 0;
       left: 0;
-      right: 200px;
-      overflow: auto;
+      right: 200px; /* Leaves space for path panel on right */
+      overflow: auto; /* Enables scrolling if map is larger than view */
     }
+/* Main canvas for drawing */
     canvas {
       background: #000;
-      cursor: crosshair;
+      cursor: crosshair; /* Crosshair cursor to indicate drawing area */
       display: block;
       transform-origin: top left;
-      transform: scale(1);
+      transform: scale(1); /* Default zoom level */
     }
+    /* Right side panel for path controls */
     #pathPanel {
       position: fixed;
       top: 70px;
@@ -60,28 +67,33 @@
       background: #222;
       padding: 10px;
       color: white;
-      overflow-y: auto;
+      overflow-y: auto; /* Scrollable if content exceeds height */
       max-height: calc(100vh - 70px);
-      z-index: 100;
+      z-index: 100; /* Ensures panel stays above canvas */
       font-size: 14px;
     }
+    /* Dropdowns and sliders in the path panel */
     #pathPanel select,
     #pathPanel input[type=range] {
       width: 100%;
-      margin-bottom: 10px;
+      margin-bottom: 10px; /* Space between controls */
     }
+  /* Box for each path's control set */
     #pathPanel .path-control {
       border: 1px solid #555;
       margin-bottom: 10px;
-      padding: 5px;
+      padding: 5px; /* Internal spacing */
     }
   </style>
 </head>
 <body>
+  <!-- UI toolbar with tool buttons and dropdowns -->
   <div id="toolbar">
+    <!-- Dropdowns for selecting map, hero, and ability -->
     <select id="mapSelect"></select>
     <select id="heroSelect"></select>
     <select id="abilitySelect"></select>
+   <!-- Buttons for selecting tool modes -->
     <button onclick="setMode('hero')">Hero</button>
     <button onclick="setMode('ability')">Ultimate</button>
     <button onclick="setMode('health')">Health Pack</button>
@@ -90,14 +102,18 @@
     <button onclick="setMode('square')">Square</button>
     <button onclick="setMode('move')">Move</button>
     <button onclick="setMode('delete')">Delete</button>
+   <!-- Buttons for clearing elements -->
     <button onclick="clearLines()">Clear Lines</button>
     <button onclick="clearIcons()">Clear Icons</button>
     <button onclick="clearPaths()">Clear Paths</button>
+    <!-- Zoom control buttons -->
     <button onclick="zoomIn()">+</button>
     <button onclick="zoomOut()">-</button>
+    <!-- Buttons for path drawing and animation -->
     <button onclick="setMode('path')">Path</button>
     <button onclick="togglePathVisibility()">Show/Hide Path</button>
     <button onclick="animateAllPaths()">Animate All</button>
+    <!-- Line style and color selection -->
     <select id="lineStyle" onchange="updateLineStyle()">
       <option value="solid">Solid</option>
       <option value="dotted">Dotted</option>
@@ -110,9 +126,11 @@
       <option value="#00bfff">Blue</option>
     </select>
   </div>
+  <!-- Container for canvas element that holds the map and drawings -->
   <div id="canvasContainer">
     <canvas id="mapCanvas"></canvas>
   </div>
+  <!-- Sidebar panel to configure paths and assign heroes -->
   <div id="pathPanel"></div>
 
   <script>
