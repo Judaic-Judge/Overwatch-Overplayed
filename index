@@ -236,11 +236,13 @@
     shapes.forEach(drawShape);
     paths.forEach(drawPath);
     icons.forEach(icon => {
-      const img = new Image();
-      img.onload = () => ctx.drawImage(img, icon.x, icon.y, 40, 40);
-      img.src = icon.src;
-    });
+  if (icon.img.complete) {
+    ctx.drawImage(icon.img, icon.x, icon.y, 40, 40);
   }
+});
+  paths.forEach(path => drawPath(path));
+  paths.forEach(path => drawFOV(path));
+}
 
   function drawStyledLine(line) {
     ctx.save();
@@ -349,55 +351,191 @@
     };
   }
 
-  function addPathControl(i) {
-    const panel = document.getElementById("pathPanel");
-    const div = document.createElement("div");
-    div.className = "path-control";
-    div.innerHTML = `
-      <label>Path ${i + 1}</label>
-      <select></select>
-      <input type='range' min='0.001' max='0.02' step='0.001' value='0.005'/>
-      <button class='animate-btn'>Animate</button>
-      <button class='delete-btn'>Delete</button>
-    `;
+    // Define addPathControl with FOV additions
+    function addPathControl(i) {
+      const panel = document.getElementById("pathPanel");
+      const div = document.createElement("div");
+      div.className = "path-control";
+      div.innerHTML = `
+  <label>Path ${i + 1}</label>
+  <select></select>
+  <input type='range' min='0.001' max='0.02' step='0.001' value='0.005'/>
+  <button class='animate-btn'>Animate</button>
+  <button class='delete-btn'>Delete</button>
+  <button class='fov-toggle'>Show FOV</button>
+  <input type='range' min='0' max='360' value='0' class='fov-angle' />
+
+  <div>
+    <label>Focus Angle:</label>
+    <button class='focus-angle-dec'>-</button>
+    <span class='focus-angle-display'>20</span>
+    <button class='focus-angle-inc'>+</button>
+  </div>
+  <div>
+    <label>Focus Length:</label>
+    <button class='focus-length-dec'>-</button>
+    <span class='focus-length-display'>1000</span>
+    <button class='focus-length-inc'>+</button>
+  </div>
+`;
+
+const updateFocusDisplay = () => {
+  div.querySelector(".focus-angle-display").textContent = paths[i].focusAngle;
+  div.querySelector(".focus-length-display").textContent = paths[i].focusLength;
+};
+
+div.querySelector(".focus-angle-dec").addEventListener("click", () => {
+  paths[i].focusAngle = Math.max(1, paths[i].focusAngle - 1);
+  updateFocusDisplay();
+  redraw();
+});
+div.querySelector(".focus-angle-inc").addEventListener("click", () => {
+  paths[i].focusAngle = Math.min(180, paths[i].focusAngle + 1);
+  updateFocusDisplay();
+  redraw();
+});
+div.querySelector(".focus-length-dec").addEventListener("click", () => {
+  paths[i].focusLength = Math.max(50, paths[i].focusLength - 50);
+  updateFocusDisplay();
+  redraw();
+});
+div.querySelector(".focus-length-inc").addEventListener("click", () => {
+  paths[i].focusLength = Math.min(3000, paths[i].focusLength + 50);
+  updateFocusDisplay();
+  redraw();
+});
+
+updateFocusDisplay();
+
     panel.appendChild(div);
 
-    const select = div.querySelector("select");
-    heroes.forEach(hero => {
-      const opt = document.createElement("option");
-      opt.value = hero;
-      opt.textContent = hero;
-      select.appendChild(opt);
-    });
+      const select = div.querySelector("select");
+      heroes.forEach(hero => {
+        const opt = document.createElement("option");
+        opt.value = hero;
+        opt.textContent = hero;
+        select.appendChild(opt);
+      });
 
-    select.addEventListener("change", e => {
-      const heroName = e.target.value;
-      const icon = icons.find(i => i.id === heroName);
-      if (icon) {
-        paths[i].icon = icon;
-        icon.progress = 0;
-      }
-    });
+      select.addEventListener("change", e => {
+        const heroName = e.target.value;
+        const path = paths[i];
 
-    const range = div.querySelector("input[type='range']");
-    range.addEventListener("input", e => {
-      paths[i].speed = parseFloat(e.target.value);
-    });
+        if (path.icon) {
+          const index = icons.indexOf(path.icon);
+          if (index !== -1) icons.splice(index, 1);
+        }
 
-    div.querySelector(".animate-btn").addEventListener("click", () => {
-      const path = paths[i];
-      if (path.icon) {
-        path.icon.progress = 0;
-        animateSinglePath(path);
-      }
-    });
+        const img = new Image();
+        img.src = `${iconDir}${heroName}.png`;
 
-    div.querySelector(".delete-btn").addEventListener("click", () => {
-      paths.splice(i, 1);
-      panel.removeChild(div);
-      redraw();
-    });
-  }
+        const icon = {
+          id: heroName,
+          img: img,
+          x: path.points[0].x - 20,
+          y: path.points[0].y - 20,
+          progress: 0
+        };
+
+        icons.push(icon);
+        path.icon = icon;
+        redraw();
+      });
+
+      const range = div.querySelector("input[type='range']");
+      range.addEventListener("input", e => {
+        paths[i].speed = parseFloat(e.target.value);
+      });
+
+      div.querySelector(".animate-btn").addEventListener("click", () => {
+        const path = paths[i];
+        if (path.icon) {
+          path.icon.progress = 0;
+          animateSinglePath(path);
+        }
+      });
+
+      div.querySelector(".delete-btn").addEventListener("click", () => {
+        if (paths[i].icon) {
+          const index = icons.indexOf(paths[i].icon);
+          if (index !== -1) icons.splice(index, 1);
+        }
+        paths.splice(i, 1);
+        panel.removeChild(div);
+        redraw();
+      });
+
+      const fovToggle = div.querySelector(".fov-toggle");
+      const fovAngleSlider = div.querySelector(".fov-angle");
+      fovToggle.addEventListener("click", () => {
+        paths[i].showFov = !paths[i].showFov;
+        fovToggle.textContent = paths[i].showFov ? "Hide FOV" : "Show FOV";
+        redraw();
+      });
+
+      fovAngleSlider.addEventListener("input", e => {
+        paths[i].facingAngle = parseFloat(e.target.value);
+        redraw();
+      });
+
+
+      paths[i].showFov = false;
+      paths[i].facingAngle = 0;
+      paths[i].focusAngle = 20;
+      paths[i].focusLength = 1000;
+
+    }
+
+
+    function drawFOV(path) {
+  if (!path.showFov || !path.icon) return;
+  const centerX = path.icon.x + 20;
+  const centerY = path.icon.y + 20;
+  const angle = path.facingAngle * Math.PI / 180;
+  const outerSpread = 103 * Math.PI / 180;
+  const innerSpread = path.focusAngle * Math.PI / 180;
+  const length = path.focusLength;
+
+  ctx.save();
+
+ 
+  const outerLeft = angle - outerSpread / 2;
+  const outerRight = angle + outerSpread / 2;
+  ctx.beginPath();
+  ctx.moveTo(centerX, centerY);
+  ctx.lineTo(centerX + Math.cos(outerLeft) * length, centerY + Math.sin(outerLeft) * length);
+  ctx.arc(centerX, centerY, length, outerLeft, outerRight);
+  ctx.closePath();
+  ctx.fillStyle = "rgba(0, 255, 0, 0.12)";
+  ctx.fill();
+
+  // Inner translucent focused FOV
+  const innerLeft = angle - innerSpread / 2;
+  const innerRight = angle + innerSpread / 2;
+  ctx.beginPath();
+  ctx.moveTo(centerX, centerY);
+  ctx.lineTo(centerX + Math.cos(innerLeft) * length, centerY + Math.sin(innerLeft) * length);
+  ctx.arc(centerX, centerY, length, innerLeft, innerRight);
+  ctx.closePath();
+  ctx.fillStyle = "rgba(0, 255, 0, 0.25)";
+  ctx.fill();
+
+  // Dotted outline
+  ctx.setLineDash([5, 5]);
+  ctx.strokeStyle = "#0f0";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(centerX, centerY);
+  ctx.lineTo(centerX + Math.cos(outerLeft) * length, centerY + Math.sin(outerLeft) * length);
+  ctx.moveTo(centerX, centerY);
+  ctx.lineTo(centerX + Math.cos(outerRight) * length, centerY + Math.sin(outerRight) * length);
+  ctx.stroke();
+
+  ctx.restore();
+}
+
+
+
 
   function clearIcons() { icons = []; redraw(); }
   function clearLines() { lines = []; shapes = []; redraw(); }
@@ -454,7 +592,17 @@
       if (mode === 'hero') src = iconDir + selectedHero + ".png";
       if (mode === 'ability') src = iconDir + selectedAbility + ".png";
       if (mode === 'health') src = iconDir + "health.png";
-      icons.push({ src, x, y, id: mode === 'hero' ? selectedHero : selectedAbility });
+      const img = new Image();
+img.src = src;
+const icon = {
+  id: mode === 'hero' ? selectedHero : selectedAbility,
+  img,
+  x,
+  y,
+  progress: 0
+};
+icons.push(icon);
+
       redraw();
     }
   });
@@ -483,6 +631,50 @@
           dragOffsetY = y - icon.y;
           return;
         }
+else if (mode === 'delete') {
+
+  for (let i = icons.length - 1; i >= 0; i--) {
+    const icon = icons[i];
+    if (x >= icon.x && x <= icon.x + 40 && y >= icon.y && y <= icon.y + 40) {
+      icons.splice(i, 1);
+      redraw();
+      return;
+    }
+  }
+
+  for (let i = shapes.length - 1; i >= 0; i--) {
+    const s = shapes[i];
+    if (x >= Math.min(s.x1, s.x2) && x <= Math.max(s.x1, s.x2) &&
+        y >= Math.min(s.y1, s.y2) && y <= Math.max(s.y1, s.y2)) {
+      shapes.splice(i, 1);
+      redraw();
+      return;
+    }
+  }
+
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const l = lines[i];
+    const d = pointToSegmentDistance(x, y, l.x1, l.y1, l.x2, l.y2);
+    if (d < 10) {
+      lines.splice(i, 1);
+      redraw();
+      return;
+    }
+  }
+
+  for (let i = paths.length - 1; i >= 0; i--) {
+    const path = paths[i];
+    for (let j = 0; j < path.points.length; j++) {
+      const pt = path.points[j];
+      if (Math.hypot(pt.x - x, pt.y - y) < 10) {
+        path.points.splice(j, 1);
+        redraw();
+        return;
+      }
+    }
+  }
+}
+
       }
       for (let i = shapes.length - 1; i >= 0; i--) {
         const s = shapes[i];
