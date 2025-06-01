@@ -36,6 +36,7 @@ This is a local, browser-based tool for planning Overwatch strategies using drag
 - Ensure that the folder structure is preserved — images must remain inside `maps/` and `textures/icons/` or they won't load properly.
 - Max of 10 animation paths can be created per map setup.
 - All actions are local and not saved to the cloud — closing the page resets the setup.
+- RIGHT CLICK FUNCTION STILL IN WORKS
 
 ##  Created By
 
