@@ -134,7 +134,6 @@
     <button onclick="zoomIn()">+</button>
     <button onclick="zoomOut()">-</button>
     <!-- Buttons for path drawing and animation -->
-    <button onclick="setMode('path')">Path</button>
     <button onclick="togglePathVisibility()">Show/Hide Path</button>
     <button onclick="animateAllPaths()">Animate All</button>
     <!-- Line style and color selection -->
@@ -426,7 +425,6 @@
       div.className = "path-control";
       div.innerHTML = `
   <label>Path ${i + 1}</label>
-  <select></select>
   <input type='range' min='0.001' max='0.02' step='0.001' value='0.005'/>
   <button class='animate-btn'>Animate</button>
   <button class='delete-btn'>Delete</button>
@@ -477,38 +475,7 @@ updateFocusDisplay();
 
     panel.appendChild(div);
 
-      const select = div.querySelector("select");
-      heroes.forEach(hero => {
-        const opt = document.createElement("option");
-        opt.value = hero;
-        opt.textContent = hero;
-        select.appendChild(opt);
-      });
 
-      select.addEventListener("change", e => {
-        const heroName = e.target.value;
-        const path = paths[i];
-
-        if (path.icon) {
-          const index = icons.indexOf(path.icon);
-          if (index !== -1) icons.splice(index, 1);
-        }
-
-        const img = new Image();
-        img.src = `${iconDir}${heroName}.png`;
-
-        const icon = {
-          id: heroName,
-          img: img,
-          x: path.points[0].x - 20,
-          y: path.points[0].y - 20,
-          progress: 0
-        };
-
-        icons.push(icon);
-        path.icon = icon;
-        redraw();
-      });
 
       const range = div.querySelector("input[type='range']");
       range.addEventListener("input", e => {
@@ -823,7 +790,7 @@ canvas.addEventListener("contextmenu", e => {
       currentShape.x2 = x;
       currentShape.y2 = y;
       redraw();
-    } else if (mode === 'path' && currentPathPoints.length > 0) {
+    } else if ((mode === 'path' || mode === 'assignPath') && currentPathPoints.length > 0) {
       currentPathPoints.push(getCanvasCoords(e, rect));
       redraw();
     } else if (mode === 'move' && dragTarget) {
