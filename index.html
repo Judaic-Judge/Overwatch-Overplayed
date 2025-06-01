@@ -1,4 +1,5 @@
 
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -6,6 +7,29 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Overwatch Map Planner</title>
   <style>
+#contextMenu {
+  position: absolute;
+  display: none;
+  background: #333;
+  color: white;
+  border: 1px solid #555;
+  z-index: 200;
+  padding: 5px;
+  font-size: 14px;
+}
+#contextMenu button {
+  background: none;
+  border: none;
+  color: white;
+  padding: 5px 10px;
+  text-align: left;
+  width: 100%;
+  cursor: pointer;
+}
+#contextMenu button:hover {
+  background: #444;
+}
+
 /* General page styling */
     body {
       margin: 0;
@@ -132,8 +156,11 @@
   </div>
   <!-- Sidebar panel to configure paths and assign heroes -->
   <div id="pathPanel"></div>
-
-  <script>
+<div id="contextMenu">
+  <button onclick="startPathForIcon()">Path</button>
+</div>
+  
+<script>
 
   const canvas = document.getElementById("mapCanvas");
   const ctx = canvas.getContext("2d");
@@ -176,20 +203,42 @@
   let draggedPathIndex = -1;
   let draggedPointIndex = -1;
 
+  let contextIcon = null;
+  let contextMenu = document.getElementById("contextMenu");
+  let assigningPathToIcon = null;
+
+
   let showPaths = true;
 
   function setMode(m) {
-    mode = m;
-	console.log(m);
+  if (mode === m) {
+    // If already active, deselect
+    mode = null;
     currentPath = null;
     currentShape = null;
     currentPathPoints = [];
     dragTarget = null;
     draggedPathPoint = null;
-    document.querySelectorAll("#toolbar button").forEach(btn => {
-      btn.classList.toggle("active", btn.textContent.toLowerCase() === m);
-    });
+    document.querySelectorAll("#toolbar button").forEach(btn => btn.classList.remove("active"));
+    console.log("Mode cleared");
+    return;
   }
+
+  // Set new mode
+  mode = m;
+  currentPath = null;
+  currentShape = null;
+  currentPathPoints = [];
+  dragTarget = null;
+  draggedPathPoint = null;
+
+  document.querySelectorAll("#toolbar button").forEach(btn => {
+    btn.classList.toggle("active", btn.textContent.toLowerCase() === m);
+  });
+
+  console.log("Mode set to", m);
+}
+
 
   function updateLineStyle() {
     currentLineStyle = document.getElementById("lineStyle").value;
@@ -614,17 +663,18 @@ updateFocusDisplay();
       if (mode === 'ability') src = iconDir + selectedAbility + ".png";
       if (mode === 'health') src = iconDir + "health.png";
       const img = new Image();
-img.src = src;
-const icon = {
-  id: mode === 'hero' ? selectedHero : selectedAbility,
-  img,
-  x,
-  y,
-  progress: 0
+img.onload = () => {
+  icons.push({
+    id: mode === 'hero' ? selectedHero : selectedAbility,
+    img,
+    x,
+    y,
+    progress: 0
+  });
+  redraw();
 };
-icons.push(icon);
+img.src = src;
 
-      redraw();
     }
   });
 
@@ -637,13 +687,14 @@ icons.push(icon);
       currentPath = { x1: x, y1: y, x2: x, y2: y, color: currentLineColor, style: currentLineStyle };
     } else if (mode === 'circle' || mode === 'square') {
       currentShape = { type: mode, x1: x, y1: y, x2: x, y2: y, color: currentLineColor, style: currentLineStyle };
-    } else if (mode === 'path') {
-      if (paths.length >= 10) {
-        alert("Maximum of 10 paths allowed.");
-        return;
-      }
-      currentPathPoints = [getCanvasCoords(e, rect)];
-    } else if (mode === 'move') {
+    } else if ((mode === 'path' || mode === 'assignPath')) {
+  if (paths.length >= 10) {
+    alert("Maximum of 10 paths allowed.");
+    return;
+  }
+  currentPathPoints = [getCanvasCoords(e, rect)];
+}
+ else if (mode === 'move') {
       for (let i = icons.length - 1; i >= 0; i--) {
         const icon = icons[i];
         if (x >= icon.x && x <= icon.x + 40 && y >= icon.y && y <= icon.y + 40) {
@@ -735,7 +786,30 @@ else if (mode === 'delete') {
       }
     
   });
+canvas.addEventListener("contextmenu", e => {
+  e.preventDefault();
+  const rect = canvas.getBoundingClientRect();
+  const x = (e.clientX - rect.left) / zoom;
+  const y = (e.clientY - rect.top) / zoom;
 
+  // Detect if right-clicked on an icon
+  contextIcon = null;
+  for (let i = icons.length - 1; i >= 0; i--) {
+    const icon = icons[i];
+    if (x >= icon.x && x <= icon.x + 40 && y >= icon.y && y <= icon.y + 40) {
+      contextIcon = icon;
+      break;
+    }
+  }
+
+  if (contextIcon) {
+    contextMenu.style.left = `${e.pageX}px`;
+    contextMenu.style.top = `${e.pageY}px`;
+    contextMenu.style.display = "block";
+  } else {
+    contextMenu.style.display = "none";
+  }
+});
   canvas.addEventListener("mousemove", e => {
     const rect = canvas.getBoundingClientRect();
     const x = (e.clientX - rect.left) / zoom;
@@ -792,18 +866,27 @@ else if (mode === 'delete') {
       shapes.push(currentShape);
       currentShape = null;
       redraw();
-    } else if (mode === 'path' && currentPathPoints.length >= 2) {
-      const path = {
-        points: currentPathPoints,
-        icon: null,
-        speed: 0.005,
-        visible: true
-      };
-      paths.push(path);
-      addPathControl(paths.length - 1);
-      currentPathPoints = [];
-      redraw();
-    }
+   } else if ((mode === 'path' || mode === 'assignPath') && currentPathPoints.length >= 2) {
+  const path = {
+    points: currentPathPoints,
+    icon: null,
+    speed: 0.005,
+    visible: true
+  };
+
+  if (mode === 'assignPath' && assigningPathToIcon) {
+    path.icon = assigningPathToIcon;
+    path.icon.progress = 0;
+  }
+
+  paths.push(path);
+  addPathControl(paths.length - 1);
+  currentPathPoints = [];
+  assigningPathToIcon = null;
+  setMode(null);
+  redraw();
+}
+
 
     dragTarget = null;
     draggedPathPoint = null;
@@ -837,6 +920,18 @@ else if (mode === 'delete') {
     const dy = py - yy;
     return Math.sqrt(dx * dx + dy * dy);
   }
+
+function startPathForIcon(event) {
+  if (event) event.stopPropagation();
+  assigningPathToIcon = contextIcon;
+  contextMenu.style.display = "none"; // Hide the menu
+  setMode("assignPath");
+}
+
+
+document.addEventListener("click", () => {
+  contextMenu.style.display = "none";
+});
 
   </script>
 </body>
