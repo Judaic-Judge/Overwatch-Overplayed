@@ -136,6 +136,10 @@
     <!-- Buttons for path drawing and animation -->
     <button onclick="togglePathVisibility()">Show/Hide Path</button>
     <button onclick="animateAllPaths()">Animate All</button>
+    <button onclick="exportPathData()">Save Paths</button>
+<input type="file" id="pathLoader" accept=".json" style="display: none" onchange="importPathData(event)">
+<button onclick="document.getElementById('pathLoader').click()">Load Paths</button>
+
     <!-- Line style and color selection -->
     <select id="lineStyle" onchange="updateLineStyle()">
       <option value="solid">Solid</option>
@@ -378,35 +382,49 @@
   }
 
   function animateSinglePath(path) {
-    function step() {
-      if (!path.icon || path.points.length < 2) return;
-      path.icon.progress += path.speed;
-      if (path.icon.progress > 1) path.icon.progress = 1;
-      const { x, y } = interpolatePath(path.points, path.icon.progress);
-      path.icon.x = x - 20;
-      path.icon.y = y - 20;
-      redraw();
-      if (path.icon.progress < 1) requestAnimationFrame(step);
+  function step() {
+    if (!path.icon || path.points.length < 2 || path.paused || path.completed) return;
+
+    path.icon.progress += path.speed;
+
+    if (path.icon.progress >= 1) {
+      path.icon.progress = 1;
+      path.completed = true;
     }
-    requestAnimationFrame(step);
+
+    const { x, y } = interpolatePath(path.points, path.icon.progress);
+    path.icon.x = x - 20;
+    path.icon.y = y - 20;
+
+    redraw();
+
+    if (!path.paused && !path.completed) {
+      requestAnimationFrame(step);
+    }
   }
+
+  requestAnimationFrame(step);
+}
+
 
   function stepAnimation() {
-    let running = false;
-    for (const p of paths) {
-      if (!p.icon || p.points.length < 2) continue;
-      const icon = p.icon;
-      icon.progress += p.speed;
-      if (icon.progress > 1) icon.progress = 1;
-      const { x, y } = interpolatePath(p.points, icon.progress);
-      icon.x = x - 20;
-      icon.y = y - 20;
-      if (icon.progress < 1) running = true;
+  let running = false;
+  for (const p of paths) {
+    if (!p.icon || p.points.length < 2 || p.paused || p.completed) continue;
+    const icon = p.icon;
+    icon.progress += p.speed;
+    if (icon.progress >= 1) {
+      icon.progress = 1;
+      p.completed = true; // Mark as finished
     }
-    redraw();
-    if (running) requestAnimationFrame(stepAnimation);
+    const { x, y } = interpolatePath(p.points, icon.progress);
+    icon.x = x - 20;
+    icon.y = y - 20;
+    if (!p.completed) running = true;
   }
-
+  redraw();
+  if (running) requestAnimationFrame(stepAnimation);
+}
   function interpolatePath(points, t) {
     const i = Math.floor(t * (points.length - 1));
     const frac = t * (points.length - 1) - i;
@@ -422,11 +440,13 @@
     function addPathControl(i) {
       const panel = document.getElementById("pathPanel");
       const div = document.createElement("div");
-      div.className = "path-control";
-      div.innerHTML = `
+   div.className = "path-control";
+   div.innerHTML = `
   <label>Path ${i + 1}</label>
   <input type='range' min='0.001' max='0.02' step='0.001' value='0.005'/>
   <button class='animate-btn'>Animate</button>
+  <button class='pause-btn'>Pause</button>
+  <button class='reset-btn'>Reset</button>
   <button class='delete-btn'>Delete</button>
   <button class='fov-toggle'>Show FOV</button>
   <input type='range' min='0' max='360' value='0' class='fov-angle' />
@@ -443,7 +463,7 @@
     <span class='focus-length-display'>1000</span>
     <button class='focus-length-inc'>+</button>
   </div>
-`; 
+`;
 
 const updateFocusDisplay = () => {
   div.querySelector(".focus-angle-display").textContent = paths[i].focusAngle;
@@ -490,6 +510,31 @@ updateFocusDisplay();
           animateSinglePath(path);
         }
       });
+// Pause Button
+const pauseBtn = div.querySelector(".pause-btn");
+pauseBtn.addEventListener("click", () => {
+  paths[i].paused = !paths[i].paused;
+  pauseBtn.textContent = paths[i].paused ? "Resume" : "Pause";
+
+  // Only restart animation loop if resuming
+  if (!paths[i].paused && !paths[i].completed) {
+    requestAnimationFrame(stepAnimation);
+  }
+});
+
+// Reset Button
+div.querySelector(".reset-btn").addEventListener("click", () => {
+  if (paths[i].icon) {
+    paths[i].icon.progress = 0;
+    const { x, y } = interpolatePath(paths[i].points, 0);
+    paths[i].icon.x = x - 20;
+    paths[i].icon.y = y - 20;
+    paths[i].paused = false;
+    paths[i].completed = false;
+    pauseBtn.textContent = "Pause";
+    redraw();
+  }
+});
 
       div.querySelector(".delete-btn").addEventListener("click", () => {
 		  console.log("here");
@@ -586,6 +631,77 @@ updateFocusDisplay();
     showPaths = !showPaths;
     redraw();
   }
+function exportPathData() {
+  const pathData = paths.map(p => ({
+    points: p.points,
+    iconId: p.icon ? p.icon.id : null,
+    iconX: p.icon ? p.icon.x : null,
+    iconY: p.icon ? p.icon.y : null,
+    speed: p.speed,
+    facingAngle: p.facingAngle,
+    focusAngle: p.focusAngle,
+    focusLength: p.focusLength
+  }));
+  const dataStr = JSON.stringify(pathData, null, 2);
+  const blob = new Blob([dataStr], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${currentMap}_paths.json`;
+  a.click();
+
+  URL.revokeObjectURL(url);
+}
+function importPathData(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    try {
+      const importedData = JSON.parse(e.target.result);
+
+      importedData.forEach(data => {
+        const icon = data.iconId ? {
+          id: data.iconId,
+          img: new Image(),
+          x: data.iconX,
+          y: data.iconY,
+          progress: 0
+        } : null;
+
+        const path = {
+          points: data.points,
+          icon,
+          speed: data.speed || 0.005,
+          visible: true,
+          paused: false,
+          completed: false,
+          facingAngle: data.facingAngle || 0,
+          focusAngle: data.focusAngle || 20,
+          focusLength: data.focusLength || 1000,
+          showFov: false
+        };
+
+        if (icon) {
+          icon.img.onload = redraw;
+          icon.img.src = iconDir + icon.id + ".png";
+          icons.push(icon);
+        }
+
+        paths.push(path);
+        addPathControl(paths.length - 1);
+      });
+
+      redraw();
+    } catch (err) {
+      alert("Failed to load path data: " + err.message);
+    }
+  };
+
+  reader.readAsText(file);
+}
 
   function init() {
     const mapSelect = document.getElementById("mapSelect");
@@ -838,7 +954,9 @@ canvas.addEventListener("contextmenu", e => {
     points: currentPathPoints,
     icon: null,
     speed: 0.005,
-    visible: true
+    visible: true,
+    paused: false,      // NEW
+    completed: false    // NEW
   };
 
   if (mode === 'assignPath' && assigningPathToIcon) {
