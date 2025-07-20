@@ -3,16 +3,16 @@
 
 This is a local, browser-based tool for planning Overwatch strategies using drag-and-drop icons, paths, and visual aids.
 
-✅ Features
-🔍 Map Zoom & Pan (with mouse or keyboard arrows)
+Features
+ Map Zoom & Pan (with mouse or keyboard arrows)
 
-🧍‍♂️ Place Icons: Heroes, Ultimates, Health Packs
+ Place Icons: Heroes, Ultimates, Health Packs
 
-🖊️ Draw Tools: Lines, Circles, Squares
+ Draw Tools: Lines, Circles, Squares
 
-🔄 Move, Delete, Clear elements
+Move, Delete, Clear elements
 
-🎯 Animated Pathing with:
+ Animated Pathing with:
 
 Speed control
 
@@ -22,17 +22,17 @@ Reset
 
 Individual and global animation controls
 
-🔦 Field of View (FOV) visualization:
+ Field of View (FOV) visualization:
 
 Adjustable facing, focus angle, and length
 
-💾 Save / Load Paths per lesson or map
+ Save / Load Paths per lesson or map
 
-🎨 Line Styles: Solid, Dotted, Arrow
+ Line Styles: Solid, Dotted, Arrow
 
-🧰 Context Menu: Right-click on icons for path assignment
+ Context Menu: Right-click on icons for path assignment
 
-🕹️ How to Use
+ How to Use
 1. Load a Map
 Use the Map dropdown to select a map (e.g., hanamura, ilios).
 
@@ -66,22 +66,21 @@ Path controls appear in the right-hand panel
 
 Each path includes:
 
-🎛️ Speed Slider
+ Speed Slider
 
-▶️ Animate Button
+ Animate Button
 
-⏸️ Pause/Resume
+ Pause/Resume
+ Reset
 
-🔁 Reset
-
-👁️ Show/Hide FOV with adjustable angle and range
+ Show/Hide FOV with adjustable angle and range
 
 6. Save/Load Animations
 Click Save Paths → Downloads a .json file
 
 Click Load Paths → Uploads a .json file to restore paths & icons
 
-🧠 Tips
+ Tips
 Use Clear Icons, Clear Lines, and Clear Paths to reset sections independently
 
 Zoom with +/- buttons or keyboard (=, -)
@@ -92,7 +91,7 @@ You can animate all paths simultaneously using Animate All
 
 You can assign only one path per icon at a time
 
-📁 File Structure Notes
+ File Structure Notes
 Maps should be stored in /maps/ directory as .png images.
 
 Hero and ability icons should be in /textures/icons/ directory, named like:
@@ -103,7 +102,7 @@ zenyatta_ult.png, dva_ult.png
 
 health.png
 
-💡 Use Case
+ Use Case
 This tool is perfect for:
 
 Tactical reviews and coaching sessions
