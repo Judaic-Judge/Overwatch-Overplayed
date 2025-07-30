@@ -1,6 +1,4 @@
-
-
-<!DOCTYPE html>
+<!DOCTYPE html> 
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
@@ -28,6 +26,53 @@
 }
 #contextMenu button:hover {
   background: #444;
+}
+#radialMenu {
+  position: absolute;
+  display: none;
+  width: 200px;
+  height: 200px;
+  border-radius: 50%;
+  background: rgba(30, 30, 30, 0.9);
+  z-index: 300;
+  pointer-events: none;
+}
+
+.radial-btn {
+  position: absolute;
+  width: 60px;
+  height: 60px;
+  background: #333;
+  color: white;
+  border: 1px solid #555;
+  border-radius: 50%; /* makes it circular */
+  text-align: center;
+  line-height: 1.2;
+  font-size: 12px;
+  padding: 8px 4px;
+  box-sizing: border-box;
+  cursor: pointer;
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-wrap: wrap;
+  text-align: center;
+  white-space: normal;
+}
+
+.radial-btn:hover {
+  background: #555;
+}
+.cancel-btn {
+  background: #a00;
+  border-color: #800;
+  font-size: 20px;
+  font-weight: bold;
+}
+
+.cancel-btn:hover {
+  background: #c00;
 }
 
 /* General page styling */
@@ -118,23 +163,11 @@
     <select id="heroSelect"></select>
     <select id="abilitySelect"></select>
    <!-- Buttons for selecting tool modes -->
-    <button onclick="setMode('hero')">Hero</button>
-    <button onclick="setMode('ability')">Ultimate</button>
-    <button onclick="setMode('health')">Health Pack</button>
-    <button onclick="setMode('draw')">Draw</button>
-    <button onclick="setMode('circle')">Circle</button>
-    <button onclick="setMode('square')">Square</button>
-    <button onclick="setMode('move')">Move</button>
-    <button onclick="setMode('delete')">Delete</button>
    <!-- Buttons for clearing elements -->
-    <button onclick="clearLines()">Clear Lines</button>
-    <button onclick="clearIcons()">Clear Icons</button>
-    <button onclick="clearPaths()">Clear Paths</button>
     <!-- Zoom control buttons -->
     <button onclick="zoomIn()">+</button>
     <button onclick="zoomOut()">-</button>
     <!-- Buttons for path drawing and animation -->
-    <button onclick="togglePathVisibility()">Show/Hide Path</button>
     <button onclick="animateAllPaths()">Animate All</button>
     <button onclick="exportPathData()">Save Paths</button>
 <input type="file" id="pathLoader" accept=".json" style="display: none" onchange="importPathData(event)">
@@ -162,7 +195,7 @@
 <div id="contextMenu">
   <button onclick="startPathForIcon()">Path</button>
 </div>
-  
+  <div id="radialMenu"></div>
 <script>
 
   const canvas = document.getElementById("mapCanvas");
@@ -170,6 +203,8 @@
   const container = document.getElementById("canvasContainer");
   const mapDir = "maps/";
   const iconDir = "textures/icons/";
+  let mouseX = 0;
+  let mouseY = 0;
   const maps = ["watchpointgibraltar", "hanamura", "ilios", "kingsrow"];
   const heroes = [
     "ana", "ashe", "baptiste", "bastion", "brig", "cassidy", "dva", "doomfist", "echo", "genji",
@@ -212,6 +247,8 @@
 
 
   let showPaths = true;
+  let freeDrawPoints = [];
+  let isDrawing = false;
 
   function setMode(m) {
   if (mode === m) {
@@ -301,6 +338,18 @@
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(mapImage, 0, 0);
     if (currentPath) drawStyledLine(currentPath);
+    if (mode === 'freedraw' && freeDrawPoints.length > 1) {
+  for (let i = 0; i < freeDrawPoints.length - 1; i++) {
+    drawStyledLine({
+      x1: freeDrawPoints[i].x,
+      y1: freeDrawPoints[i].y,
+      x2: freeDrawPoints[i + 1].x,
+      y2: freeDrawPoints[i + 1].y,
+      color: currentLineColor,
+      style: currentLineStyle
+    });
+  }
+}
     if (currentShape) drawShape(currentShape);
     if (currentPathPoints.length > 1) drawPath({ points: currentPathPoints, visible: true });
     lines.forEach(drawStyledLine);
@@ -313,8 +362,22 @@
 });
   paths.forEach(path => drawPath(path));
   paths.forEach(path => drawFOV(path));
+  if (mode === 'delete') drawDeleteCursor(mouseX, mouseY);
 }
+  function drawDeleteCursor(x, y) {
+  const radius = 8;
 
+  ctx.save();
+  ctx.fillStyle = "rgba(255, 0, 0, 0.3)";  // translucent red fill
+  ctx.strokeStyle = "red";                 // solid red border
+  ctx.lineWidth = 1;
+
+  ctx.beginPath();
+  ctx.arc(x, y, radius, 0, 2 * Math.PI);
+  ctx.fill();     // fill first
+  ctx.stroke();   // then stroke the border
+  ctx.restore();
+}
   function drawStyledLine(line) {
     ctx.save();
     ctx.strokeStyle = line.color;
@@ -748,12 +811,12 @@ function importPathData(event) {
       const img = new Image();
 img.onload = () => {
   icons.push({
-    id: mode === 'hero' ? selectedHero : selectedAbility,
-    img,
-    x,
-    y,
-    progress: 0
-  });
+  id: mode === 'hero' ? selectedHero : selectedAbility,
+  img,
+  x: x - 20, // center horizontally
+  y: y - 20, // center vertically
+  progress: 0
+});
   redraw();
 };
 img.src = src;
@@ -765,8 +828,12 @@ img.src = src;
     const rect = canvas.getBoundingClientRect();
     const x = (e.clientX - rect.left) / zoom;
     const y = (e.clientY - rect.top) / zoom;
-
-    if (mode === 'draw') {
+    if (mode === 'freedraw') {
+    freeDrawPoints = [{ x, y }];
+    isDrawing = true;
+    return;
+  }
+    if (mode === 'line') {
       currentPath = { x1: x, y1: y, x2: x, y2: y, color: currentLineColor, style: currentLineStyle };
     } else if (mode === 'circle' || mode === 'square') {
       currentShape = { type: mode, x1: x, y1: y, x2: x, y2: y, color: currentLineColor, style: currentLineStyle };
@@ -869,6 +936,57 @@ else if (mode === 'delete') {
       }
     
   });
+function showRadialMenu(x, y) {
+  const menu = document.getElementById("radialMenu");
+  menu.innerHTML = "";
+
+  const items = [
+    { label: "Hero", action: () => setMode("hero") },
+    { label: "Ultimate", action: () => setMode("ability") },
+    { label: "Health", action: () => setMode("health") },
+    { label: "Free Draw", action: () => setMode("freedraw") },
+    { label: "Circle", action: () => setMode("circle") },
+    { label: "Square", action: () => setMode("square") },
+    { label: "Move", action: () => setMode("move") },
+    { label: "Delete", action: () => setMode("delete") },
+    { label: "Clear Lines", action: () => clearLines() },
+    { label: "Clear Icons", action: () => clearIcons() },
+    { label: "Clear Paths", action: () => clearPaths() },
+    { label: "Toggle Paths", action: () => togglePathVisibility() },
+    { label: "Line", action: () => setMode("line") },
+  ];
+
+  const radius = 120;
+  const angleStep = (2 * Math.PI) / items.length;
+const cancelBtn = document.createElement("div");
+cancelBtn.className = "radial-btn cancel-btn";
+cancelBtn.textContent = "✖";
+cancelBtn.style.left = "50%";
+cancelBtn.style.top = "50%";
+cancelBtn.style.transform = "translate(-50%, -50%)";
+cancelBtn.onclick = () => {
+  menu.style.display = "none";
+};
+menu.appendChild(cancelBtn);
+  items.forEach((item, i) => {
+    const angle = i * angleStep - Math.PI / 2; // Start from top
+    const btn = document.createElement("div");
+    btn.className = "radial-btn";
+    btn.style.left = `${100 + radius * Math.cos(angle)}px`;
+    btn.style.top = `${100 + radius * Math.sin(angle)}px`;
+    btn.style.transform = "translate(-50%, -50%)";    btn.textContent = item.label;
+    btn.onclick = () => {
+      item.action();
+      menu.style.display = "none";
+    };
+    menu.appendChild(btn);
+  });
+
+  menu.style.left = `${x - 100}px`;
+  menu.style.top = `${y - 100}px`;
+  menu.style.display = "block";
+}
+
 canvas.addEventListener("contextmenu", e => {
   e.preventDefault();
   const rect = canvas.getBoundingClientRect();
@@ -885,18 +1003,67 @@ canvas.addEventListener("contextmenu", e => {
     }
   }
 
+  // Show icon-specific context menu
   if (contextIcon) {
     contextMenu.style.left = `${e.pageX}px`;
     contextMenu.style.top = `${e.pageY}px`;
     contextMenu.style.display = "block";
+    document.getElementById("radialMenu").style.display = "none";
   } else {
+    // Show radial tool menu
     contextMenu.style.display = "none";
+    showRadialMenu(e.pageX, e.pageY);
   }
 });
   canvas.addEventListener("mousemove", e => {
-    const rect = canvas.getBoundingClientRect();
-    const x = (e.clientX - rect.left) / zoom;
-    const y = (e.clientY - rect.top) / zoom;
+  const rect = canvas.getBoundingClientRect();
+  const x = (e.clientX - rect.left) / zoom;
+  const y = (e.clientY - rect.top) / zoom;
+
+  mouseX = x;
+  mouseY = y;
+
+  if (mode === 'delete' && e.buttons === 1) {
+    // Delete lines
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const l = lines[i];
+      const d = pointToSegmentDistance(x, y, l.x1, l.y1, l.x2, l.y2);
+      if (d < 8) {
+        lines.splice(i, 1);
+        redraw();
+        return;
+      }
+    }
+
+    // Optional: delete shapes
+    for (let i = shapes.length - 1; i >= 0; i--) {
+      const s = shapes[i];
+      if (x >= Math.min(s.x1, s.x2) && x <= Math.max(s.x1, s.x2) &&
+          y >= Math.min(s.y1, s.y2) && y <= Math.max(s.y1, s.y2)) {
+        shapes.splice(i, 1);
+        redraw();
+        return;
+      }
+    }
+
+    // Optional: delete path points
+    for (let i = paths.length - 1; i >= 0; i--) {
+      const path = paths[i];
+      for (let j = 0; j < path.points.length; j++) {
+        const pt = path.points[j];
+        if (Math.hypot(pt.x - x, pt.y - y) < 8) {
+          path.points.splice(j, 1);
+          redraw();
+          return;
+        }
+      }
+    }
+  }
+
+  // Always call redraw so delete cursor updates
+  if (mode === 'delete') {
+    redraw();
+  }
 
     if (currentPath) {
       currentPath.x2 = x;
@@ -938,46 +1105,61 @@ canvas.addEventListener("contextmenu", e => {
       draggedPathPoint.y = y;
       redraw();
     }
+      if (mode === 'freedraw' && isDrawing) {
+      freeDrawPoints.push({ x, y });
+      redraw();
+}
   });
 
   canvas.addEventListener("mouseup", () => {
-    if (mode === 'draw' && currentPath) {
-      lines.push(currentPath);
-      currentPath = null;
-      redraw();
-    } else if ((mode === 'circle' || mode === 'square') && currentShape) {
-      shapes.push(currentShape);
-      currentShape = null;
-      redraw();
-   } else if ((mode === 'path' || mode === 'assignPath') && currentPathPoints.length >= 2) {
-  const path = {
-    points: currentPathPoints,
-    icon: null,
-    speed: 0.005,
-    visible: true,
-    paused: false,      // NEW
-    completed: false    // NEW
-  };
+  if (mode === 'line' && currentPath) {
+    lines.push(currentPath);
+    currentPath = null;
+    redraw();
+  } else if ((mode === 'circle' || mode === 'square') && currentShape) {
+    shapes.push(currentShape);
+    currentShape = null;
+    redraw();
+  } else if (mode === 'freedraw' && isDrawing) {
+    lines.push(...freeDrawPoints.slice(1).map((pt, i) => ({
+      x1: freeDrawPoints[i].x,
+      y1: freeDrawPoints[i].y,
+      x2: pt.x,
+      y2: pt.y,
+      color: currentLineColor,
+      style: currentLineStyle
+    })));
+    isDrawing = false;
+    freeDrawPoints = [];
+    redraw();
+  } else if ((mode === 'path' || mode === 'assignPath') && currentPathPoints.length >= 2) {
+    const path = {
+      points: currentPathPoints,
+      icon: null,
+      speed: 0.005,
+      visible: true,
+      paused: false,
+      completed: false
+    };
 
-  if (mode === 'assignPath' && assigningPathToIcon) {
-    path.icon = assigningPathToIcon;
-    path.icon.progress = 0;
+    if (mode === 'assignPath' && assigningPathToIcon) {
+      path.icon = assigningPathToIcon;
+      path.icon.progress = 0;
+    }
+
+    paths.push(path);
+    addPathControl(paths.length - 1);
+    currentPathPoints = [];
+    assigningPathToIcon = null;
+    setMode(null);
+    redraw();
   }
 
-  paths.push(path);
-  addPathControl(paths.length - 1);
-  currentPathPoints = [];
-  assigningPathToIcon = null;
-  setMode(null);
-  redraw();
-}
-
-
-    dragTarget = null;
-    draggedPathPoint = null;
-    draggedPathIndex = -1;
-    draggedPointIndex = -1;
-  });
+  dragTarget = null;
+  draggedPathPoint = null;
+  draggedPathIndex = -1;
+  draggedPointIndex = -1;
+});
 
   function pointToSegmentDistance(px, py, x1, y1, x2, y2) {
     const A = px - x1;
