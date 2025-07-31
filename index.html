@@ -193,7 +193,9 @@
   <!-- Sidebar panel to configure paths and assign heroes -->
   <div id="pathPanel"></div>
 <div id="contextMenu">
-  <button onclick="startPathForIcon()">Path</button>
+  <button onclick="startPathForIcon()">Assign Path</button>
+  <button onclick="deleteContextIcon()">Delete Icon</button>
+  <button onclick="deleteContextPath()">Delete Path</button>
 </div>
   <div id="radialMenu"></div>
 <script>
@@ -216,6 +218,8 @@
   let currentMap = maps[0];
   let mapImage = new Image();
   let zoom = 1;
+  let pendingMapChange = null;
+  let hasInteractedWithDropdown = false;
 
   let icons = [];        // hero/ability/health icons
   let lines = [];        // drawn lines
@@ -324,14 +328,42 @@
   }
 
   function loadMap(name) {
-    mapImage.src = `${mapDir}${name}.png`;
-    mapImage.onload = () => {
-      canvas.width = mapImage.width;
-      canvas.height = mapImage.height;
-      canvas.style.transform = `scale(${zoom})`;
-      redraw();
-    };
-  }
+  // Clear all elements
+  icons = [];
+  lines = [];
+  shapes = [];
+  paths = [];
+  currentPath = null;
+  currentShape = null;
+  currentPathPoints = [];
+  draggedPathPoint = null;
+  draggedPathIndex = -1;
+  draggedPointIndex = -1;
+
+  // Clear the path control panel
+  document.getElementById("pathPanel").innerHTML = "";
+
+  // Load the new map image
+  mapImage.src = `${mapDir}${name}.png`;
+  mapImage.onload = () => {
+    canvas.width = mapImage.width;
+    canvas.height = mapImage.height;
+
+    // ✅ Auto-fit map to canvas
+    const canvasRatio = window.innerWidth / window.innerHeight;
+    const imageRatio = mapImage.width / mapImage.height;
+
+    if (imageRatio > canvasRatio) {
+      zoom = window.innerWidth / mapImage.width;
+    } else {
+      zoom = window.innerHeight / mapImage.height;
+    }
+
+    canvas.style.transform = `scale(${zoom})`;
+    window.scrollTo(0, 0);
+    redraw();
+  };
+}
 
   function redraw() {
     ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -768,36 +800,83 @@ function importPathData(event) {
 
   function init() {
     const mapSelect = document.getElementById("mapSelect");
-    maps.forEach(map => {
-      const opt = document.createElement("option");
-      opt.value = map;
-      opt.textContent = map;
-      mapSelect.appendChild(opt);
-    });
-    mapSelect.addEventListener("change", e => {
-      currentMap = e.target.value;
-      loadMap(currentMap);
-    });
-
-    const heroSelect = document.getElementById("heroSelect");
+    maps.sort().forEach(map => {
+  const opt = document.createElement("option");
+  opt.value = map;
+  opt.textContent = map;
+  mapSelect.appendChild(opt);
+});
+      const heroSelect = document.getElementById("heroSelect");
     const abilitySelect = document.getElementById("abilitySelect");
-    heroes.forEach(hero => {
-      const h = document.createElement("option");
-      h.value = hero;
-      h.textContent = hero;
-      heroSelect.appendChild(h);
-      const a = document.createElement("option");
-      a.value = hero + "_ult";
-      a.textContent = hero + " ult";
-      abilitySelect.appendChild(a);
-    });
+    heroes.sort().forEach(hero => {
+  const h = document.createElement("option");
+  h.value = hero;
+  h.textContent = hero;
+  heroSelect.appendChild(h);
+
+  const a = document.createElement("option");
+  a.value = hero + "_ult";
+  a.textContent = hero + " ult";
+  abilitySelect.appendChild(a);
+});
 
     heroSelect.addEventListener("change", e => selectedHero = e.target.value);
     abilitySelect.addEventListener("change", e => selectedAbility = e.target.value);
+    
     loadMap(currentMap);
+     
+    isInitializing = false;
   }
+  
+
+
+window.addEventListener("DOMContentLoaded", () => {
   init();
 
+  const mapSelect = document.getElementById("mapSelect");
+  mapSelect.addEventListener("change", e => {
+    if (!hasInteractedWithDropdown) {
+      hasInteractedWithDropdown = true;
+      return;
+    }
+
+    const selected = e.target.value;
+    if (selected === currentMap) return;
+
+    pendingMapChange = selected;
+    document.getElementById("mapChangeModal").style.display = "flex";
+    mapSelect.value = currentMap;
+  });
+
+  document.getElementById("mapChangeYes").addEventListener("click", () => {
+    exportPathData();
+    closeMapModal();
+    if (pendingMapChange) {
+      currentMap = pendingMapChange;
+      loadMap(currentMap);
+    }
+  });
+
+  document.getElementById("mapChangeNo").addEventListener("click", () => {
+    closeMapModal();
+    if (pendingMapChange) {
+      currentMap = pendingMapChange;
+      loadMap(currentMap);
+    }
+  });
+
+  document.getElementById("mapChangeCancel").addEventListener("click", () => {
+    closeMapModal();
+    pendingMapChange = null;
+  });
+
+  function closeMapModal() {
+    document.getElementById("mapChangeModal").style.display = "none";
+  }
+});
+function closeMapModal() {
+  document.getElementById("mapChangeModal").style.display = "none";
+}
   canvas.addEventListener("click", e => {
     const rect = canvas.getBoundingClientRect();
     const x = (e.clientX - rect.left) / zoom;
@@ -855,12 +934,20 @@ img.src = src;
         }
 	  }
 	}
-else if (mode === 'delete') {
-		console.log("large delete");
+if (mode === 'delete') {
+  console.log("large delete");
 
   for (let i = icons.length - 1; i >= 0; i--) {
     const icon = icons[i];
     if (x >= icon.x && x <= icon.x + 40 && y >= icon.y && y <= icon.y + 40) {
+      // Remove paths associated with this icon
+      for (let j = paths.length - 1; j >= 0; j--) {
+        if (paths[j].icon === icon) {
+          paths.splice(j, 1);
+          document.getElementById("pathPanel").children[j]?.remove();
+        }
+      }
+
       icons.splice(i, 1);
       redraw();
       return;
@@ -1194,12 +1281,55 @@ function startPathForIcon(event) {
   contextMenu.style.display = "none"; // Hide the menu
   setMode("assignPath");
 }
+function deleteContextIcon() {
+  if (!contextIcon) return;
 
+  const index = icons.indexOf(contextIcon);
+  if (index !== -1) {
+    icons.splice(index, 1);
+  }
+
+  // Also remove any path that uses this icon
+  for (let i = paths.length - 1; i >= 0; i--) {
+    if (paths[i].icon === contextIcon) {
+      paths.splice(i, 1);
+      document.getElementById("pathPanel").children[i]?.remove();
+    }
+  }
+
+  contextIcon = null;
+  contextMenu.style.display = "none";
+  redraw();
+}
+
+function deleteContextPath() {
+  if (!contextIcon) return;
+
+  for (let i = paths.length - 1; i >= 0; i--) {
+    if (paths[i].icon === contextIcon) {
+      paths.splice(i, 1);
+      document.getElementById("pathPanel").children[i]?.remove();
+    }
+  }
+
+  contextMenu.style.display = "none";
+  redraw();
+}
 
 document.addEventListener("click", () => {
   contextMenu.style.display = "none";
 });
 
   </script>
+<div id="mapChangeModal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.6); z-index:1000; display:flex; align-items:center; justify-content:center;">
+  <div style="background:#222; color:white; padding:20px; border:1px solid #555; border-radius:8px; width:300px; text-align:center;">
+    <p>Switching maps will erase all current icons, lines, and paths.<br><br>Do you want to save before switching?</p>
+    <div style="margin-top:15px;">
+      <button id="mapChangeYes">Yes</button>
+      <button id="mapChangeNo">No</button>
+      <button id="mapChangeCancel">Cancel</button>
+    </div>
+  </div>
+</div>
 </body>
 </html>
