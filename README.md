@@ -23,11 +23,13 @@ Added alphabetical organization of drop down menu
 Added "delete icon" and "delete path" on right click of icon
 Deleting icon will now delete path
 Changing maps deletes paths, icons and lines
->>>CURRENT ISSUE<<< 
--On load, drop down menu will say "Hanamura" but load gibraltar. This will prevent map change until Gibraltar is selected in the drop down menu.
+>>>CURRENT ISSUE
+
+- On load, drop down menu will say "Hanamura" but load gibraltar. This will prevent map change until Gibraltar is selected in the drop down menu.
+
 - On load, prompt for map change save option appears, just ignore for now
 
->>> ISSUES WILL BE ADDRESSED IN NEXT PATCH<<<
+>>> ISSUES WILL BE ADDRESSED IN NEXT PATCH
 
 
 ##  Created By
